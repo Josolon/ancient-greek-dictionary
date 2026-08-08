@@ -353,6 +353,79 @@ def sense_depth_from_n(n_val):
         return 3   # a, b, c … — sub-sub-sense
     return 4       # anything deeper
 
+_PAIRS = {'(': ')', '[': ']'}
+
+
+def _strip_parenthetical(text, opener_re):
+    """Remove parentheticals whose opening matches `opener_re`, honouring nesting.
+
+    A non-greedy `\\(cf\\..*?\\)` stops at the FIRST closing paren, which in LSJ
+    is routinely an inner one - "(cf. λέγω (B) II)" gets eaten only as far as
+    "(B)", stranding " II)" with no opener. Scanning forward on a depth counter
+    removes the whole parenthetical instead.
+    """
+    out, pos = [], 0
+    for m in opener_re.finditer(text):
+        if m.start() < pos:
+            continue  # inside a parenthetical already removed
+        depth, i = 0, m.end() - 1     # m must end on its own '('
+        while i < len(text):
+            if text[i] == '(':
+                depth += 1
+            elif text[i] == ')':
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        else:
+            i = len(text)             # never closed - drop the rest
+        out.append(text[pos:m.start()])
+        pos = min(i + 1, len(text))
+    out.append(text[pos:])
+    return ''.join(out)
+
+
+def _balance_delimiters(text):
+    """Repair unbalanced brackets left behind by cleanup or truncation.
+
+    Two failure modes, both visible in the overview box: an orphan closer whose
+    opener was removed by an earlier substitution, and an opener left dangling
+    because truncation landed inside the parenthetical. A partial parenthetical
+    carries no information, so the opener and everything after it is dropped.
+
+    Applied last, after every other step, because any of them can unbalance the
+    string - which is also why fixing the substitutions alone is not enough.
+    """
+    # Pass 1: drop closers that never had an opener.
+    keep, stack = [], []
+    for i, ch in enumerate(text):
+        if ch in _PAIRS:
+            stack.append(ch)
+        elif ch in _PAIRS.values():
+            if stack and _PAIRS[stack[-1]] == ch:
+                stack.pop()
+            else:
+                continue  # orphan closer
+        keep.append(ch)
+    text = ''.join(keep)
+
+    # Pass 2: cut at the earliest opener that is never closed.
+    stack = []
+    for i, ch in enumerate(text):
+        if ch in _PAIRS:
+            stack.append((ch, i))
+        elif ch in _PAIRS.values() and stack and _PAIRS[stack[-1][0]] == ch:
+            stack.pop()
+    if stack:
+        text = text[:stack[0][1]]
+
+    # Trailing separators are truncation artefacts and go; the ellipsis does
+    # NOT - it is the marker telling the reader the brief was cut short. A
+    # final period stays too, since it may be an abbreviation rather than a
+    # sentence end.
+    return text.rstrip(' ,;:—-').strip()
+
+
 def _clean_and_truncate_brief(text, max_chars=200, for_overview=False):
     """Shared cleanup/truncation logic for brief summaries: strips citations and
     cross-references, then truncates to a sensible length. Used both for
@@ -365,8 +438,10 @@ def _clean_and_truncate_brief(text, max_chars=200, for_overview=False):
     """
     # Remove citations and cross-references more aggressively
     text = strip_citation_apparatus(text)  # bare citations, e.g. "Il. 9.116", "AP 7"
-    text = re.sub(r'\s+\(cf\..*?\)', '', text, flags=re.DOTALL)  # (cf. ...)
-    text = re.sub(r'\s+\([A-Z][a-z]+\..*?\)', '', text, flags=re.DOTALL)  # (Pl. ...), (Hdt. ...), etc
+    # Depth-aware, so a nested cross-reference like "(cf. λέγω (B) II)" is
+    # removed whole rather than up to its inner ")" - see _strip_parenthetical.
+    text = _strip_parenthetical(text, re.compile(r'\s*\((?=cf\.)'))          # (cf. ...)
+    text = _strip_parenthetical(text, re.compile(r'\s*\((?=[A-Z][a-z]+\.)'))  # (Pl. ...), (Hdt. ...)
     text = re.sub(r'\s+v\.\s+.*$', '', text, flags=re.DOTALL)  # v. ref
     text = re.sub(r'\s*(cf\.|etc\.)\s*.*$', '', text, flags=re.IGNORECASE | re.DOTALL)  # cf., etc.
     text = re.sub(r'\s+;.*$', '', text)  # Remove everything after semicolon
@@ -391,8 +466,9 @@ def _clean_and_truncate_brief(text, max_chars=200, for_overview=False):
     
     if len(text) > max_chars:
         text = text[:max_chars].rstrip() + '\u2026'
-    
-    return text
+
+    # Last, because every step above can leave a bracket stranded.
+    return _balance_delimiters(text)
 
 def brief_sense_text(node, max_chars=200, for_overview=False):
     """Extract a meaningful snippet from a sense node for the overview.
