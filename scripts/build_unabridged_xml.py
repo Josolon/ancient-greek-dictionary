@@ -245,6 +245,32 @@ def strip_all_greek_accents(text):
 _GREEK_VOWELS = 'αεηιουω'
 _ACCENT_MARK_CODEPOINTS = {0x0301, 0x0300, 0x0342}  # acute, grave, circumflex
 
+
+_CASE_ABBR = {'nom': 'nominative', 'gen': 'genitive', 'dat': 'dative',
+              'acc': 'accusative', 'voc': 'vocative'}
+
+def _cases_from_tag(morph_tag, fallback):
+    """All cases a morphology tag covers, e.g. "neut nom/voc/acc sg" ->
+    nominative, vocative, accusative. Falls back to the db's single case."""
+    for tok in (morph_tag or '').split():
+        parts = tok.split('/')
+        if all(x in _CASE_ABBR for x in parts):
+            return [_CASE_ABBR[x] for x in parts]
+    return [fallback]
+
+
+def accent_key(text):
+    """Lookup key that keeps accents/breathings but drops vowel-length marks
+    and case. Wiktionary joins use this rather than strip_all_greek_accents:
+    stripping accents too collapses distinct words (θυμός "spirit" / θύμος
+    "thymus gland" / θύμον "thyme") into one key and hands every homograph
+    the same etymology and vowel length."""
+    if not text: return ""
+    d = unicodedata.normalize('NFD', text)
+    d = ''.join(c for c in d if ord(c) not in (0x0304, 0x0306))
+    return unicodedata.normalize('NFC', d).lower()
+
+
 def add_enclitic_accent_variant(text):
     """A paroxytone/proparoxytone word gains an ADDED acute on its final
     vowel when immediately followed by an enclitic in running text (e.g.
@@ -887,6 +913,7 @@ def build_unabridged_dictionary():
     grammar_word_index = load_grammar_word_index()
     wiktionary_etymology = load_wiktionary_etymology()
     wiktionary_vowel_length = load_wiktionary_vowel_length()
+    wikt_key_counts = {}
 
     if not os.path.exists(TEI_XML_DIR):
         print(f"❌ Error: Target repository path missing at {TEI_XML_DIR}")
@@ -962,7 +989,7 @@ def build_unabridged_dictionary():
                             m = re.match(r'\[([^\]]*)\]$', pron_text)
                             if m:
                                 display_lemma = merge_lsj_pron_length(display_lemma, m.group(1))
-                wikt_canonical = wiktionary_vowel_length.get(strip_all_greek_accents(raw_lemma).lower())
+                wikt_canonical = wiktionary_vowel_length.get(accent_key(raw_lemma))
                 if wikt_canonical:
                     display_lemma = merge_vowel_length_from_reference(display_lemma, wikt_canonical)
 
@@ -983,7 +1010,7 @@ def build_unabridged_dictionary():
                 search_indices.add(strip_all_greek_accents(raw_lemma))
                 enclitic_variant = add_enclitic_accent_variant(raw_lemma)
                 if enclitic_variant: search_indices.add(enclitic_variant)
-                morph_cursor.execute("SELECT form, form_normalized, pos, tense, voice, mood, person, number, case_name, degree, gender FROM morphology WHERE lemma = ?", (lookup_lemma,))
+                morph_cursor.execute("SELECT form, form_normalized, pos, tense, voice, mood, person, number, case_name, degree, gender, morphology FROM morphology WHERE lemma = ?", (lookup_lemma,))
                 morph_rows = morph_cursor.fetchall()
 
                 is_verb, is_noun_adj = False, False
@@ -1010,7 +1037,7 @@ def build_unabridged_dictionary():
                 superlative_raw_forms = set()
 
                 for mr in morph_rows:
-                    f_form, f_norm, pos, tense, voice, mood, person, number, case_name, degree, gender = mr
+                    f_form, f_norm, pos, tense, voice, mood, person, number, case_name, degree, gender, morph_tag = mr
                     degree_bucket = None
                     if pos in ('noun', 'adjective', 'article', 'pronoun'):
                         if degree == 'comparative':
@@ -1054,12 +1081,17 @@ def build_unabridged_dictionary():
                         is_noun_adj = True
                         if case_name and number:
                             gender_key = gender or ''
-                            if degree == 'comparative':
-                                comparative_grid[case_name][number][gender_key].add(disp_form)
-                            elif degree == 'superlative':
-                                superlative_grid[case_name][number][gender_key].add(disp_form)
-                            else:
-                                noun_grid[case_name][number][gender_key].add(disp_form)
+                            # The db's case_name holds only the FIRST case of a
+                            # syncretic tag like "neut nom/voc/acc sg", which
+                            # left every neuter's accusative and vocative as
+                            # dashes. Expand from the tag itself.
+                            for case_key in _cases_from_tag(morph_tag, case_name):
+                                if degree == 'comparative':
+                                    comparative_grid[case_key][number][gender_key].add(disp_form)
+                                elif degree == 'superlative':
+                                    superlative_grid[case_key][number][gender_key].add(disp_form)
+                                else:
+                                    noun_grid[case_key][number][gender_key].add(disp_form)
 
                 for keyword in search_indices:
                     clean_kw = sanitize_apple_key(keyword)
@@ -1254,8 +1286,15 @@ def build_unabridged_dictionary():
                 # parts), not up near the headword - it's background on where
                 # the word comes from, read after the definitions, not before.
                 out_xml.write(render_etymology_html(grammar_info))
-                wikt_etyms = wiktionary_etymology.get(strip_all_greek_accents(raw_lemma).lower(), [])
-                out_xml.write(render_wiktionary_etymology_html(wikt_etyms))
+                # Written as a placeholder and resolved after the whole pass:
+                # if several LSJ entries share one exact accented headword
+                # (homographs, e.g. two θύμος entries) we cannot tell which
+                # one the Wiktionary etymology belongs to, and showing it on
+                # all of them attaches it to the wrong word.
+                wikt_key = accent_key(raw_lemma)
+                if wikt_key in wiktionary_etymology:
+                    wikt_key_counts[wikt_key] = wikt_key_counts.get(wikt_key, 0) + 1
+                    out_xml.write(f'        <!--WIKT:{wikt_key}-->\n')
 
                 # Defined unconditionally (not just under the noun/adj branch
                 # below) so the synthetic comparative/superlative entries
@@ -1386,6 +1425,24 @@ def build_unabridged_dictionary():
         out_xml.write('</d:dictionary>\n')
         
     morph_conn.close()
+
+    # Resolve the etymology placeholders: only unambiguous headwords (exactly
+    # one LSJ entry with that accented form) get a Wiktionary etymology.
+    tmp_path = OUTPUT_XML_PATH + '.tmp'
+    placed = skipped = 0
+    with open(OUTPUT_XML_PATH, encoding='utf-8') as src, open(tmp_path, 'w', encoding='utf-8') as dst:
+        for line in src:
+            m = re.match(r'\s*<!--WIKT:(.*)-->$', line.rstrip('\n'))
+            if not m:
+                dst.write(line)
+                continue
+            if wikt_key_counts.get(m.group(1)) == 1:
+                dst.write(render_wiktionary_etymology_html(wiktionary_etymology[m.group(1)]))
+                placed += 1
+            else:
+                skipped += 1
+    os.replace(tmp_path, OUTPUT_XML_PATH)
+    print(f"Wiktionary etymology: {placed} placed, {skipped} withheld (homograph headwords)")
     print(f"\n🎉 Success! Total of {entry_counter} unabridged entries written to {OUTPUT_XML_PATH}")
 
 if __name__ == "__main__":

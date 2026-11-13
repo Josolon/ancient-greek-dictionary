@@ -37,7 +37,7 @@ import json
 import os
 import unicodedata
 
-from build_unabridged_xml import strip_all_greek_accents
+from build_unabridged_xml import accent_key
 
 WIKTIONARY_SOURCE_PATH = '../wiktionary-grc-data/grc_entries.jsonl'
 ETYMOLOGY_OUTPUT_PATH = 'data/wiktionary_etymology.json'
@@ -103,7 +103,7 @@ def fetch_wiktionary_data():
         for line in f:
             total += 1
             d = json.loads(line)
-            key = strip_all_greek_accents(d.get('word', '')).lower()
+            key = accent_key(d.get('word', ''))
             if not key:
                 continue
 

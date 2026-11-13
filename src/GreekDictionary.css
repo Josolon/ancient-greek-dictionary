@@ -314,3 +314,32 @@ p.morph-label {
 .morphology-table tr:nth-child(even) td {
     background-color: #f7f9ff;
 }
+
+/* --- Dark mode: every colour above assumes a white page. Without this the
+   headword, sense text and Greek words are dark-on-dark and vanish. --- */
+@media (prefers-color-scheme: dark) {
+    body, div.sense-major .sense-num, span.sense-body { color: #e6e6ea; }
+    h1.entry-lemma { color: #b9c4ee; border-bottom-color: #3a3f55; }
+    b.gk-word { color: #a8c0ff; }
+    span.citation, div.pronunciation-line { color: #9d9daa; }
+    span.sense-num { color: #e08f8f; }
+    div.sense-major { border-top-color: #3a3f55; }
+    div.sense-major .sense-num { color: #e8a0a0; }
+    div.sense-depth-1, div.sense-depth-2 { border-left-color: #3a4260; }
+    div.sense-depth-3, div.sense-depth-4 { border-left-color: #262b3d; }
+    div.case-governance-header { background: #1c2030; border-left-color: #8fa8e8; color: #c2c2cc; }
+    div.sense-overview { background: #1c2030; border-color: #3a4260; color: #c2c2cc; }
+    div.entry-preamble, div.entry-grammar-crossref, div.entry-etymology,
+    div.entry-degree-forms { color: #c2c2cc; }
+    span.gram-badge { background-color: #232840; border-color: #3a4260; color: #8fa8e8; }
+    span.sense-gram-badge { color: #8fa8e8; }
+    span.degree-label, span.etym-label { color: #9d9daa; }
+    div.entry-etymology-wiktionary { background-color: #2a2620; border-left-color: #7a6d52; color: #d8d2c4; }
+    div.morph-section { background-color: #1c2030; border-color: #3a4260; }
+    p.morph-label { background-color: #232840; border-bottom-color: #3a4260; color: #8fa8e8; }
+    .morph-secondary-header td { background-color: #232840; color: #9d9daa; border-color: #262b3d; }
+    .morphology-table th { background-color: #232840; color: #8fa8e8; border-bottom-color: #3a4260; }
+    .morphology-table td { color: #e6e6ea; border-bottom-color: #262b3d; }
+    .morphology-table td.case-label { color: #8fa8e8; }
+    .morphology-table tr:nth-child(even) td { background-color: #1c2030; }
+}

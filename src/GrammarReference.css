@@ -131,3 +131,21 @@ div.pron-note {
     font-style: italic;
     color: #667;
 }
+
+/* --- Dark mode --- */
+@media (prefers-color-scheme: dark) {
+    body { color: #e6e6ea; }
+    h1.grammar-heading { color: #b9c4ee; border-bottom-color: #3a3f55; }
+    div.grammar-citation { color: #8fa8e8; }
+    span.para-num { background-color: #232840; border-color: #3a4260; color: #8fa8e8; }
+    b.gk-word { color: #a8c0ff; }
+    i.grammar-gloss { color: #c2c2cc; }
+    table.grammar-table { background-color: #1c2030; border-color: #3a4260; }
+    table.grammar-table td { border-bottom-color: #262b3d; }
+    table.grammar-table tr:nth-child(even) td { background-color: #232840; }
+    table.pron-table th { color: #8fa8e8; background-color: #232840; }
+    b.pron-lang { color: #8fa8e8; }
+    b.pron-best { color: #a8c0ff; text-decoration-color: #3a4260; }
+    span.pron-none { color: #7d8196; }
+    div.pron-note { color: #9d9daa; }
+}
